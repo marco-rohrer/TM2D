@@ -1,6 +1,6 @@
 #!/bin/bash
 
-
+# These commands only work, when the netcdf fortran library is installed on your computer!
 includedir=`nf-config --fflags`
 libdir=`nc-config --flibs`
 gfortran -O3 -o tm2d tm2d_v0.9.0.f90 ${includedir} ${libdir}

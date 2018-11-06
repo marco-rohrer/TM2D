@@ -19,7 +19,7 @@ program tm2d
 ! v0.8.4   : Rewrite contour3D and debug everything
 ! v0.8.5   : Code clean up and bug fixes
 ! v0.8.6   : Code clean up (time steps) and bug fixes (time axis and blocktracks latitude was reversed)
-
+! v0.9.0   : Rewrite for more convenient command line interface, added Netcdf4 compression, now incorporates TM2D, Z500' and VAPV
 
 ! Marco Rohrer, Oct 2016 (marco.rohrer@giub.unibe.ch)
 
@@ -31,6 +31,7 @@ IMPLICIT NONE
 
 LOGICAL                                    :: nopersistence=.FALSE. !.TRUE. !FALSE.
 LOGICAL                                    :: nooverlap=.FALSE. !.TRUE. !.FALSE.
+LOGICAL                                    :: compression=.TRUE.                               ! Zipped NetCDF-4 file or not?
 
 ! Argument I/O
 INTEGER                                    :: narg, i                                          ! Number and counter of input arguments
@@ -168,6 +169,7 @@ DO i=1,narg
         PRINT*,"--logging=BOOL [write log files [T]"
         PRINT*,"--nooverlap=BOOL [deactivate overlap criterium [F]"
         PRINT*,"--nopersistence=BOOL [deactivate persistence criterium [F]"
+        PRINT*,"-nc3 [creates an uncompressed NetCDF3 file instead of a zipped NetCDF4 file"
         STOP
       CASE ('--mor')
         WRITE(*,'(A446)') "This program detects and tracks blockings. So far three different block algorithms are implemented that &
@@ -241,6 +243,8 @@ DO i=1,narg
    CASE ('--nop')
         PRINT*, "Attention persistence criterion disabled, persistence set to 0.0"
         persistence=0
+   CASE ('-nc3 ')
+        compression=.FALSE.
    CASE DEFAULT
         WRITE(*,*) "Attention argument not found:",arg
    END SELECT
@@ -256,7 +260,6 @@ IF (istat /= nf90_NoErr) THEN
    WRITE(*,*) "File "//trim(infile)//" does not exist. Exit"
    STOP
 ENDIF
-
 
 ! Get dimensions
 istat = 0
@@ -346,13 +349,13 @@ ENDIF
 !=========================Prepare output file
 
 
-! Changes for compression:
-! istat = NF90_CREATE(trim(outfile), NF90_HDF5, ncido)
-! istat = NF90_DEF_VAR_DEFLATE(ncido,DatVarIDo,0,1,1)
-
 cfoutcomment='TM2D version '//trim(version)
 istat=0
-istat = NF90_CREATE(trim(outfile), NF90_HDF5, ncido)
+IF (compression) THEN
+   istat = NF90_CREATE(trim(outfile), NF90_HDF5, ncido)
+ELSE
+   istat = NF90_CREATE(trim(outfile), NF90_NOCLOBBER, ncido)
+ENDIF ! if compression [ change whether zipped NC4 file is created or generic NC3 (much larger!)
 IF(istat /= nf90_NoErr) THEN ; WRITE(*,*) 'Create file: ', NF90_STRERROR(istat); ENDIF
 
 ! Define Dimension
@@ -385,8 +388,10 @@ IF(istat/=NF90_NoErr) print*,'Define time ', NF90_STRERROR(istat)
 ! Define 3D output file 
 istat = NF90_DEF_VAR(ncido,"blocks",NF90_BYTE,(/LonDimIDo,LatDimIDo,TimeDimIDo/), DatVarIDo)
 IF(istat/=NF90_NoErr) print*,'Define outdat ', NF90_STRERROR(istat)
-istat = NF90_DEF_VAR_DEFLATE(ncido,DatVarIDo,0,1,1)
-IF(istat/=NF90_NoErr) print*,'Define deflation ', NF90_STRERROR(istat)
+IF (compression) THEN
+   istat = NF90_DEF_VAR_DEFLATE(ncido,DatVarIDo,0,1,1)
+   IF(istat/=NF90_NoErr) print*,'Define deflation ', NF90_STRERROR(istat)
+ENDIF ! Compress NC4 file if compression is turned on
 istat = NF90_PUT_ATT(ncido,DatVarID, "standard_name",'blocks')
 istat = NF90_PUT_ATT(ncido,DatVarID, "long_name",'blocks')
 istat = NF90_PUT_ATT(ncido,DatVarID, "units",'-')
