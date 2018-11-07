@@ -37,11 +37,13 @@ LOGICAL                                    :: labeling=.FALSE.                  
 ! Argument I/O
 INTEGER                                    :: narg, i                                          ! Number and counter of input arguments
 CHARACTER(128)                             :: arg                                              ! Input argument that will be parsed
+INTEGER                                    :: errors=0                                         ! Number of errors
 
 ! NetCDF I/O
 CHARACTER(1000)                            :: cfoutcomment, cftimeunit, cfcalendar             ! Variables to store NetCDF comments and time units
-CHARACTER(200)                             :: infile, invarname, inlat, inlon, inver, intime   ! Names of the incoming file, the variable name that should be read and the dimensions
-CHARACTER(200)                             :: outfile, mode                                    ! Name of outgoing file
+CHARACTER(200)                             :: infile="unknown", invarname="unknown"            ! Name of input file and input variable (mandatory!)
+CHARACTER(200)                             :: inlat, inlon, inver, intime                      ! Names of the incoming file, the variable name that should be read and the dimensions
+CHARACTER(200)                             :: outfile="unknown", mode="unknown"                ! Name of outgoing file, calculation mode (mandatory!)
 CHARACTER(200)                             :: cflevunit, cflevname                             ! Level attributes
 CHARACTER(24),DIMENSION(:),ALLOCATABLE     :: dimnames,varnames                                ! Names of dimensions and variables
 INTEGER,DIMENSION(:), ALLOCATABLE          :: lendims                                          ! Dimensions lengths
@@ -254,9 +256,28 @@ DO i=1,narg
    END SELECT
 ENDDO
 
-print*,overlap
-print*,persistence
-print*,compression
+! Check if we got the minimum required input
+IF (mode=="unknown") THEN
+   PRINT*,"--> No mode selected [available: TM2D, VAPV, Z500anom]. Please indicate with --mode=TM2D. Aborting"
+   errors=errors+1
+ENDIF
+IF (infile=="unknown") THEN
+   PRINT*,"-->Input file not specified, please indicate with --infile=/path/to/infile. Aborting"
+   errors=errors+1
+ENDIF
+IF (invarname=="unknown") THEN
+   PRINT*,"-->Input variable name not specific please indicate with --invar=myvar. &
+           &If you don't know, check your input file with ncdump -h. Aborting"
+   errors=errors+1
+ENDIF
+IF (outfile=="unknown") THEN
+   PRINT*,"-->Output file not specified, please indicate with --outfile=/path/to/outfile. Aborting"
+   errors=errors+1
+ENDIF
+
+! Stop, if a mandatory argument is missing
+IF (errors.GT.0) STOP
+
 
 !==================================================================================================================================
 !========================== Open NetCDF file 
