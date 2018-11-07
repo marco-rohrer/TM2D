@@ -236,7 +236,7 @@ DO i=1,narg
    CASE ('--dze')
         READ(arg(7:9), '(I3)') dze
    CASE ('--ano')
-        READ(arg(8:11), '(F4.0)') anom
+        READ(arg(8:11), '(I4)') anom
    CASE ('--vap')
         READ(arg(11:14), '(F4.0)') vapv
    CASE ('-nolo')
@@ -469,12 +469,19 @@ IF (logging) ALLOCATE(bstat(INT(nTime*1.5),12))
 !! Get dx and dy and setup tracking routine
 dx=ABS(longitude(1)-longitude(2)) !360./REAL(nLong)
 dy=ABS(latitude(1)-latitude(2)) !180./REAL(nLats-1)
-sy=latitude(1)
-IF(sy.GT.30) nh=.TRUE.      ! IF only SH data don't calculate NH
-ey=latitude(nLats)
-IF(ey.LT.-30) sh=.TRUE.     ! IF only NH data don't calculate SH
-nstep=INT((90-minlat)/dy)+1 ! Define number of iterations depending on resolution and most equatorward lat
-tmo=INT(tmy/dy)             ! Offset needed between the upper and the lower grid point chosen for comparison
+IF (mode=='TM2D') THEN
+   sy=latitude(1)
+   IF(sy.GT.30) nh=.TRUE.      ! IF only SH data don't calculate NH
+   ey=latitude(nLats)
+   IF(ey.LT.-30) sh=.TRUE.     ! IF only NH data don't calculate SH
+   nstep=INT((90-minlat)/dy)+1 ! Define number of iterations depending on resolution and most equatorward lat
+   tmo=INT(tmy/dy)             ! Offset needed between the upper and the lower grid point chosen for comparison
+ENDIF ! Define variables relevant for TM2D
+
+! In the next step we load data from the NetCDF file. Because the whole file may be very large, the program may fail due to RAM 
+! shortage. Therefore we only load a chunk of data (defined by tlen) into the RAM and continue to overwrite it as we move forward
+! in the file. tlen should be long enough, so that no block will be longer than tlen. Such a block is not completely in the loaded
+! data (i.e. in the arr variable) and the algorithm is failing.
 
 DO tt=1,(nTime+tlen)
    IF (tt.LE.nTime) THEN 
@@ -482,6 +489,7 @@ DO tt=1,(nTime+tlen)
    ENDIF ! tt
    tx=MOD(tt,tlen)
    IF(tx.EQ.0) tx=tlen
+   ! Load one time step slice from netcdf file, as long as we haven't reached the end of the NC file (nTime)
    IF (tt.LE.nTime) THEN
       IF (exlev) THEN
          istat = NF90_GET_VAR(ncid, DatVarID, arr2d,start = (/1,1,1,tt/),count=(/nLong,nLats,1,1/))
@@ -492,41 +500,54 @@ DO tt=1,(nTime+tlen)
 
       IF (reverselat) arr2d=arr2d(:,nLats:1:-1) ! Reverse latitude if necessary
       arr(:,:,tx)=arr2d
-   ELSE
+   ELSE ! if end of file is reached, we load dummy data
       arr(:,:,tx)=-99999
    ENDIF ! if tt
    arr2(:,:,tx)=0; arr3(:,:,tx)=0  ! Reset arr2/arr3, otherwise we have the blockings from the former iterations in the matrix
    !! Get initial gradient inversals
 !! ======================================================================================
    IF (tt.LE.nTime) THEN !(INT(arr(1,1,tx)).NE.-99999) THEN ! We do not need to calculate blockings after the last time step
-      IF (nh) THEN
-         IF(tt.EQ.1) print*,"We do NH --> Tibaldi 1990 (changed to 15°)"
+      ! Get potentially blocked grid points for TM2D
+      IF (mode=="TM2D") THEN
+         IF (nh) THEN
+            IF(tt.EQ.1) print*,"We do NH --> Tibaldi 1990 (changed to 15°)"
+            DO ii=1,nLong
+               DO jj=tmo+1,nstep
+                  !    Zn           -    Zo         < -10*deg (see TM90)
+                  IF(arr(ii,(jj-tmo),tx)-arr(ii,jj,tx).LT.(tmy*dzp).AND.& ! GHGN (polar)
+                  !    Zo           -    Zs         > 0*deg
+                  arr(ii,jj,tx)-arr(ii,(jj+tmo),tx).GT.(tmy*dze)) THEN    ! GHGS (equator)
+                     arr2(ii,jj,tx)=1
+                  ENDIF
+               ENDDO ! jj
+            ENDDO ! ii
+         ENDIF ! IF nh
+
+         IF (sh) THEN
+            IF(tt.EQ.1) print*,"We do SH --> Tibaldi 1994"
+            DO ii=1,nLong !nLats-nstep-tmo,nLats-tmo
+               DO jj=(nLats-nstep+1),(nLats-tmo)
+                  !         Zn(polar)    - Zo        < -10*deg           
+                  IF(arr(ii,(jj+tmo),tx)-arr(ii,jj,tx).LT.(tmy*dzp).AND.&
+                  !         Zo    - Zs (equator)     > 0*deg
+                  arr(ii,jj,tx)-arr(ii,(jj-tmo),tx).GT.(tmy*dze)) THEN
+                     arr2(ii,jj,tx)=1
+                  ENDIF
+               ENDDO ! jj
+            ENDDO ! ii
+         ENDIF ! IF sh
+      ! Get potentially blocked grid points for Z500anom
+      ELSE IF (mode=="Z500anom") THEN
+         IF(tt.EQ.1) print*,"Get anomalies"
          DO ii=1,nLong
-            DO jj=tmo+1,nstep
-               !    Zn           -    Zo         < -10*deg (see TM90)
-               IF(arr(ii,(jj-tmo),tx)-arr(ii,jj,tx).LT.(tmy*dzp).AND.& ! GHGN (polar)
-               !    Zo           -    Zs         > 0*deg
-               arr(ii,jj,tx)-arr(ii,(jj+tmo),tx).GT.(tmy*dze)) THEN    ! GHGS (equator)
+            DO jj=1,nLats
+               IF(arr(ii,jj,tx).GT.anom) THEN
                   arr2(ii,jj,tx)=1
-               ENDIF
+               ENDIF ! if PV < -1.3
             ENDDO ! jj
          ENDDO ! ii
-      ENDIF ! IF nh
 
-      IF (sh) THEN
-         IF(tt.EQ.1) print*,"We do SH --> Tibaldi 1994"
-         DO ii=1,nLong !nLats-nstep-tmo,nLats-tmo
-            DO jj=(nLats-nstep+1),(nLats-tmo)
-               !         Zn(polar)    - Zo        < -10*deg           
-               IF(arr(ii,(jj+tmo),tx)-arr(ii,jj,tx).LT.(tmy*dzp).AND.&
-               !         Zo    - Zs (equator)     > 0*deg
-               arr(ii,jj,tx)-arr(ii,(jj-tmo),tx).GT.(tmy*dze)) THEN
-                  arr2(ii,jj,tx)=1
-               ENDIF
-            ENDDO ! jj
-         ENDDO ! ii
-      ENDIF ! IF sh
-
+      ENDIF ! if mode
 
 !! Identify individual contour areas on each lon-lat field
       ALLOCATE(carr(nLong,nLats))
@@ -536,6 +557,7 @@ DO tt=1,(nTime+tlen)
       label2d=1
       DO ii=1,nLong
          DO jj=1,nLats
+            ! Find a potentially blocked grid point and connect all spatially connected blocked grid points
             IF (carr(ii,jj).EQ.1) THEN
                label2d=label2d+1
                carr(ii,jj)=label2d
@@ -563,7 +585,8 @@ DO tt=1,(nTime+tlen)
    ENDIF ! Get array for overlap
 
    IF (tt.GT.1.AND.tt.LT.(nTime+1)) THEN 
-      CALL spoverlapnew(arrover,nLong,nLats,latitude,dx,dy,overlap)
+      ! Here we calculate the overlap --> overlap defined as overlapping area of t2 and t3 compared to total area in t2
+      CALL spoverlap(arrover,nLong,nLats,latitude,dx,dy,overlap)
       arr2(:,:,t2)=arrover(:,:,2)
       arr3(:,:,t2)=arrover(:,:,2)
    ENDIF ! Define overlap for every timestep --> Load 3 timesteps in spoverlap and compute ovelap of the middle timestep to the first and third
@@ -594,9 +617,10 @@ DO tt=1,(nTime+tlen)
                ! Get values for first detected grid point
                iiv(1)=ii    ; jjv(1)=jj ; ttv(1)=t2 ; ttva(1)=t1
                IF (logging) THEN
-                  IF (jj.LT.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj+tmo),t2) ! NH
-                  IF (jj.GE.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj-tmo),t2) ! SH
-               
+                  IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN 
+                     IF (jj.LT.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj+tmo),t2) ! NH
+                     IF (jj.GE.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj-tmo),t2) ! SH
+                  ENDIF ! IF mode
                   ! Get data for blockstat
                   dzmax=dzv(1) ; dzmaxt=t1 ; dzmaxx=ii ; dzmaxy=jj
                   ! Get data for blocktracks
@@ -626,22 +650,31 @@ DO tt=1,(nTime+tlen)
                               iiv(ngp)=ix ; jjv(ngp)=iy ; ttv(ngp)=it ; ttva(ngp)=iu
                               
                               IF (logging) THEN
-                                 IF (jj.LT.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy+tmo),it) ! NH
-                                 IF (jj.GE.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy-tmo),it) ! SH
+                                 ! Get maximum anomaly depending on the chose mode
+                                 IF (mode=="TM2D") THEN
+                                    IF (jj.LT.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy+tmo),it) ! NH
+                                    IF (jj.GE.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy-tmo),it) ! SH
+                                 ELSE IF (mode=="Z500anom") THEN
+                                    dzv(ngp)=arr(ix,iy,it)
+                                 ENDIF
 
                                  ! Get data for blockstata
-                                 IF (dzv(ngp).GT.dzmax) THEN
-                                    dzmax=dzv(ngp)
-                                    dzmaxt=iu
-                                    dzmaxx=ix
-                                    dzmaxy=iy
-                                 ENDIF ! Dzmin
-                                 ! Get data for blocktracks
-                                 IF(dzv(ngp).GT.dzmaxv(iu)) THEN
-                                    dzmaxv(iu)=dzv(ngp)
-                                    dzmaxxv(iu)=ix
-                                    dzmaxyv(iu)=iy
-                                 ENDIF ! dzmaxv
+                                 IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN
+                                    IF (dzv(ngp).GT.dzmax) THEN
+                                       dzmax=dzv(ngp)
+                                       dzmaxt=iu
+                                       dzmaxx=ix
+                                       dzmaxy=iy
+                                    ENDIF ! Dzmin
+                                    ! Get data for blocktracks
+                                    IF(dzv(ngp).GT.dzmaxv(iu)) THEN
+                                       dzmaxv(iu)=dzv(ngp)
+                                       dzmaxxv(iu)=ix
+                                       dzmaxyv(iu)=iy
+                                    ENDIF ! dzmaxv
+                                 ELSE IF (mode=="VAPV") THEN
+                                    print*,"tbd"
+                                 ENDIF ! mode
                               ENDIF ! IF logging
                            ENDIF ! arr2=-1
                         ENDDO ! tm
@@ -652,19 +685,21 @@ DO tt=1,(nTime+tlen)
 
                ! Get output for blockstat
                IF (logging) THEN
-                  bstat(label,1)=label
-                  bstat(label,3)=MINVAL(ttva(1:ngp))
-                  bstat(label,4)=MAXVAL(ttva(1:ngp))
-                  bstat(label,2)=bstat(label,4)-bstat(label,3)+1
-                  bstat(label,5)=MAXVAL(dzmaxv)
-                  bstat(label,6)=dzmaxt
-                  bstat(label,7)=dzmaxx
-                  bstat(label,8)=dzmaxy
+                  bstat(label,1)=label                                   ! Label (Block ID) 
+                  bstat(label,3)=MINVAL(ttva(1:ngp))                     ! Get start time step of block
+                  bstat(label,4)=MAXVAL(ttva(1:ngp))                     ! Get end time step of block
+                  bstat(label,2)=bstat(label,4)-bstat(label,3)+1         ! Get length of block
+                  IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN
+                     bstat(label,5)=MAXVAL(dzmaxv)
+                  ENDIF ! Get maximum anomaly for block (depends on method)
+                  bstat(label,6)=dzmaxt                                  ! Get time step of maximum anomaly of block
+                  bstat(label,7)=dzmaxx                                  ! Get longitude index for maximum anomaly of block
+                  bstat(label,8)=dzmaxy                                  ! Get latitude index for maximum anomaly of block
                   CALL gettime(times,MINVAL(ttva(1:ngp)),cftimeunit,year,mon,day,hour)
-                  bstat(label,9:12)=(/year,mon,day,hour/)
+                  bstat(label,9:12)=(/year,mon,day,hour/)                ! Get year,mon,day,hour of first time step of block
 
                   ! Get output for blocktracks
-                  ALLOCATE(sinsum(INT(bstat(label,2))),cossum(INT(bstat(label,2))))
+                  ALLOCATE(sinsum(INT(bstat(label,2))),cossum(INT(bstat(label,2))))  ! bstat(label,2) contains the length of the block
                   ALLOCATE(latsum(INT(bstat(label,2))),ngpsum(INT(bstat(label,2))))
                   sinsum=0 ; cossum=0 ; latsum=0 ; ngpsum=0
                   DO jl=1,ngp
@@ -832,7 +867,9 @@ SUBROUTINE connect2D(carr,label,ii,jj,nLong,nLats)
    ENDDO ! DO while ngpc <= ngp
 END SUBROUTINE connect2D
 
-SUBROUTINE spoverlapnew(arrover,nLong,nLats,latitude,dx,dy,overlap)
+SUBROUTINE spoverlap(arrover,nLong,nLats,latitude,dx,dy,overlap)
+! Compute spatial overlap between time step 2 and 3 and compared it to area of block at time step 2
+! Time step 1 is currently unused but remains in the code in order to make changes to the overlapping algorithm easier
 
 IMPLICIT NONE
 
@@ -859,6 +896,6 @@ IMPLICIT NONE
          WHERE(arrover(:,:,2).EQ.nn) arrover(:,:,2)=0
       ENDIF ! IF overlap not big enough
    ENDDO ! nn
-END SUBROUTINE spoverlapnew
+END SUBROUTINE spoverlap
 
 
