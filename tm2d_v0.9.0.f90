@@ -32,6 +32,7 @@ IMPLICIT NONE
 LOGICAL                                    :: nopersistence=.FALSE. !.TRUE. !FALSE.
 LOGICAL                                    :: nooverlap=.FALSE. !.TRUE. !.FALSE.
 LOGICAL                                    :: compression=.TRUE.                               ! Zipped NetCDF-4 file or not?
+LOGICAL                                    :: labeling=.FALSE.                                ! Switch whether blocked areas are labelled or binary
 
 ! Argument I/O
 INTEGER                                    :: narg, i                                          ! Number and counter of input arguments
@@ -130,7 +131,6 @@ INTERFACE ! Interface for gettime, so we don't need pass nTime for allocation, m
 END INTERFACE
 
 
-!logging=.FALSE.
 version='v0.9.0'
 
 narg=iargc()
@@ -166,10 +166,11 @@ DO i=1,narg
         PRINT*,"--minlat=INT [minimum latitude towards equator for TM2D [35]"
         PRINT*,"--anom=INT [minimum geopotential height anomaly [m] for DG83 [200]"
         PRINT*,"--vapvmin=FLOAT [minimum VAPV treshold [PVU] for VAPV [-1.3]"
-        PRINT*,"--logging=BOOL [write log files [T]"
-        PRINT*,"--nooverlap=BOOL [deactivate overlap criterium [F]"
-        PRINT*,"--nopersistence=BOOL [deactivate persistence criterium [F]"
+        PRINT*,"-nologging [deactivate logging of block characteristics, increases performance]"
+        PRINT*,"-nooverlap [deactivate overlap criterium]"
+        PRINT*,"-nopersistence [deactivate persistence criterium]"
         PRINT*,"-nc3 [creates an uncompressed NetCDF3 file instead of a zipped NetCDF4 file"
+        PRINT*,"-labels [activate ascencding numbering of blocks instead of binary field]"
         STOP
       CASE ('--mor')
         WRITE(*,'(A446)') "This program detects and tracks blockings. So far three different block algorithms are implemented that &
@@ -210,12 +211,11 @@ DO i=1,narg
         WRITE(*,'(A125)') "--outfile=CHAR : REQUIRED, use this parameter to indicate the file to which the blocks are&
                & written, e.g. /home/user/blocks.nc"
         STOP
-   CASE ('--log')
-        READ(arg(11:11),'(L1)') logging
+   CASE ('-logg')
+        logging=.TRUE.
    CASE ('--inf')
         infile=TRIM(arg(10:128))
    CASE ('--inv')
-        PRINT*,arg
         invarname=TRIM(arg(9:128))
    CASE ('--out')
         outfile=TRIM(arg(11:128))
@@ -237,20 +237,26 @@ DO i=1,narg
         READ(arg(8:11), '(F4.0)') anom
    CASE ('--vap')
         READ(arg(11:14), '(F4.0)') vapv
-   CASE ('--noo')
+   CASE ('-nolo')
+        logging=.FALSE.
+   CASE ('-noov')
         PRINT*, "Attention overlap criterion disabled, overlap set to 0.0"
         overlap=0.0
-   CASE ('--nop')
+   CASE ('-nope')
         PRINT*, "Attention persistence criterion disabled, persistence set to 0.0"
         persistence=0
    CASE ('-nc3 ')
         compression=.FALSE.
+   CASE ('-labe')
+        labeling=.TRUE.
    CASE DEFAULT
         WRITE(*,*) "Attention argument not found:",arg
    END SELECT
 ENDDO
 
-
+print*,overlap
+print*,persistence
+print*,compression
 
 !==================================================================================================================================
 !========================== Open NetCDF file 
@@ -385,8 +391,13 @@ istat = NF90_PUT_ATT(ncido,TimeVarIDo, "units",cftimeunit)
 istat = NF90_PUT_ATT(ncido,TimeVarIDo, "calendar",cfcalendar)
 IF(istat/=NF90_NoErr) print*,'Define time ', NF90_STRERROR(istat)
 
-! Define 3D output file 
-istat = NF90_DEF_VAR(ncido,"blocks",NF90_BYTE,(/LonDimIDo,LatDimIDo,TimeDimIDo/), DatVarIDo)
+! Define 3D output file
+IF (labeling) THEN
+   istat = NF90_DEF_VAR(ncido,"blocks",NF90_INT,(/LonDimIDo,LatDimIDo,TimeDimIDo/), DatVarIDo)
+ELSE 
+   istat = NF90_DEF_VAR(ncido,"blocks",NF90_BYTE,(/LonDimIDo,LatDimIDo,TimeDimIDo/), DatVarIDo)
+ENDIF ! If numbering is requested, we need more precision to store the whole range of numbers (not only binary 0/1 field)
+
 IF(istat/=NF90_NoErr) print*,'Define outdat ', NF90_STRERROR(istat)
 IF (compression) THEN
    istat = NF90_DEF_VAR_DEFLATE(ncido,DatVarIDo,0,1,1)
@@ -675,8 +686,13 @@ DO tt=1,(nTime+tlen)
             ENDIF ! arr3.EQ.-1
          ENDDO ! DO jj (lats)
       ENDDO ! DO ii (lons)
-      WHERE(arr3(:,:,t2).GT.1) arr3(:,:,t2)=1
+
+      IF ( .NOT. labeling) THEN
+          WHERE(arr3(:,:,t2).GT.1) arr3(:,:,t2)=1
+      ENDIF ! Set blocked areas to 1, in case blocks numbering/labeling is not desired (standard)
       arr2d=arr3(:,:,t2)
+
+      ! Put time slice into NetCDF file
       istat = NF90_PUT_VAR(ncido,DatVarIDo,arr2d,start = (/1,1,t1/),count=(/nLong,nLats,1/))
    ENDIF ! IF(tt.GT.(tlen-10)) THEN
 
