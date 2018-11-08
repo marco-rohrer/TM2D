@@ -236,9 +236,9 @@ DO i=1,narg
    CASE ('--dze')
         READ(arg(7:9), '(I3)') dze
    CASE ('--ano')
-        READ(arg(8:11), '(I4)') anom
+        READ(arg(8:13), '(I6)') anom
    CASE ('--vap')
-        READ(arg(11:14), '(F4.0)') vapv
+        READ(arg(11:16), '(F6.0)') vapv
    CASE ('-nolo')
         logging=.FALSE.
    CASE ('-noov')
@@ -506,8 +506,9 @@ DO tt=1,(nTime+tlen)
       arr(:,:,tx)=-99999
    ENDIF ! if tt
    arr2(:,:,tx)=0; arr3(:,:,tx)=0  ! Reset arr2/arr3, otherwise we have the blockings from the former iterations in the matrix
-   !! Get initial gradient inversals
+
 !! ======================================================================================
+!! Get potentially blocked grid points --> Depends on the applied method --> mode switch
    IF (tt.LE.nTime) THEN !(INT(arr(1,1,tx)).NE.-99999) THEN ! We do not need to calculate blockings after the last time step
       ! Get potentially blocked grid points for TM2D
       IF (mode=="TM2D") THEN
@@ -548,7 +549,22 @@ DO tt=1,(nTime+tlen)
                ENDIF ! if PV < -1.3
             ENDDO ! jj
          ENDDO ! ii
-
+      ! Get potentially blocked grid points for VAPV
+      ELSE IF (mode=="VAPV") THEN
+         IF(tt.EQ.1) print*,"Get PV anomalies"
+         DO ii=1,nLong
+            DO jj=1,nLats
+               IF(latitude(jj).LT.0) THEN
+                  arr(ii,jj,tx)=arr(ii,jj,tx)*(-1)
+               ENDIF ! IF southern hemisphee, change sign of PV
+               IF(arr(ii,jj,tx).LT.vapv) THEN
+                   arr2(ii,jj,tx)=1
+               ENDIF ! if PV < -1.3
+            ENDDO ! jj
+         ENDDO ! ii
+      ELSE
+         PRINT*,"ERROR: mode not found --> Aborting"
+         STOP
       ENDIF ! if mode
 
 !! Identify individual contour areas on each lon-lat field
@@ -619,9 +635,11 @@ DO tt=1,(nTime+tlen)
                ! Get values for first detected grid point
                iiv(1)=ii    ; jjv(1)=jj ; ttv(1)=t2 ; ttva(1)=t1
                IF (logging) THEN
-                  IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN 
+                  IF (mode=="TM2D") THEN 
                      IF (jj.LT.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj+tmo),t2) ! NH
                      IF (jj.GE.(nLats/2)) dzv(1)=arr(ii,jj,t2)-arr(ii,(jj-tmo),t2) ! SH
+                  ELSE IF ((mode=="VAPV") .OR. (mode=="Z500anom")) THEN
+                     dzv(1)=arr(ii,jj,t2)
                   ENDIF ! IF mode
                   ! Get data for blockstat
                   dzmax=dzv(1) ; dzmaxt=t1 ; dzmaxx=ii ; dzmaxy=jj
@@ -656,12 +674,13 @@ DO tt=1,(nTime+tlen)
                                  IF (mode=="TM2D") THEN
                                     IF (jj.LT.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy+tmo),it) ! NH
                                     IF (jj.GE.(nLats/2)) dzv(ngp)=arr(ix,iy,it)-arr(ix,(iy-tmo),it) ! SH
-                                 ELSE IF (mode=="Z500anom") THEN
+                                 ELSE IF ((mode=="Z500anom") .OR. (mode=="VAPV")) THEN
                                     dzv(ngp)=arr(ix,iy,it)
                                  ENDIF
 
                                  ! Get data for blockstata
                                  IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN
+                                    ! Get data for blockstat
                                     IF (dzv(ngp).GT.dzmax) THEN
                                        dzmax=dzv(ngp)
                                        dzmaxt=iu
@@ -675,7 +694,19 @@ DO tt=1,(nTime+tlen)
                                        dzmaxyv(iu)=iy
                                     ENDIF ! dzmaxv
                                  ELSE IF (mode=="VAPV") THEN
-                                    print*,"tbd"
+                                    ! Get data for blockstat
+                                    IF (dzv(ngp).LT.dzmax) THEN ! Changed for PV ( .GT: for GPH
+                                       dzmax=dzv(ngp)
+                                       dzmaxt=iu
+                                       dzmaxx=ix
+                                       dzmaxy=iy
+                                    ENDIF ! Dzmin
+                                    ! Get data for blocktracks
+                                    IF(dzv(ngp).LT.dzmaxv(iu)) THEN ! Changed for PV ( .GT. for GPH)
+                                       dzmaxv(iu)=dzv(ngp)
+                                       dzmaxxv(iu)=ix
+                                       dzmaxyv(iu)=iy
+                                    ENDIF ! dzmaxv
                                  ENDIF ! mode
                               ENDIF ! IF logging
                            ENDIF ! arr2=-1
@@ -692,7 +723,9 @@ DO tt=1,(nTime+tlen)
                   bstat(label,4)=MAXVAL(ttva(1:ngp))                     ! Get end time step of block
                   bstat(label,2)=bstat(label,4)-bstat(label,3)+1         ! Get length of block
                   IF ((mode=="TM2D") .OR. (mode=="Z500anom")) THEN
-                     bstat(label,5)=MAXVAL(dzmaxv)
+                     bstat(label,5)=MAXVAL(dzmaxv)                       ! Maximum anomaly for TM2D, Z500anom
+                  ELSE IF (mode=="VAPV") THEN
+                     bstat(label,5)=MINVAL(dzmaxv)                       ! Minimum anomaly for PV (the lower PV, the stronger the block)
                   ENDIF ! Get maximum anomaly for block (depends on method)
                   bstat(label,6)=dzmaxt                                  ! Get time step of maximum anomaly of block
                   bstat(label,7)=dzmaxx                                  ! Get longitude index for maximum anomaly of block
@@ -782,8 +815,12 @@ IF (logging) THEN
       WRITE(22,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_anom","Timx","Lonx","Latx","Lon","Lat"
       WRITE(23,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
       WRITE(24,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+   ELSE IF (mode=="VAPV") THEN
+      WRITE(21,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Min_PV","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(22,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Min_PV","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(23,902) 'ID',"Length","Tmstp","Min_PV","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+      WRITE(24,902) 'ID',"Length","Tmstp","Min_PV","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
    ENDIF ! IF mode
-   PRINT*,"Hallo"
    nn=0
    DO ii=1,label
       WRITE(21,901) INT(bstat(ii,(/1,2,9,10,11,12,3,4/))),bstat(ii,5),INT(bstat(ii,6:8)),&
