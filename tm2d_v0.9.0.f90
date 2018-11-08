@@ -701,7 +701,7 @@ DO tt=1,(nTime+tlen)
                   ! Get output for blocktracks
                   ALLOCATE(sinsum(INT(bstat(label,2))),cossum(INT(bstat(label,2))))  ! bstat(label,2) contains the length of the block
                   ALLOCATE(latsum(INT(bstat(label,2))),ngpsum(INT(bstat(label,2))))
-                  sinsum=0 ; cossum=0 ; latsum=0 ; ngpsum=0
+                  sinsum=0 ; cossum=0 ; latsum=0 ; ngpsum=0               ! sinsum and cossum are needed for the weighted mean of the longitude
                   DO jl=1,ngp
                      tm=ttva(jl)-MINVAL(ttva(1:ngp))+1                    ! We use the absolute time axis for calculations concerning time
                      btrack(nn+tm,11)=btrack(nn+tm,11)+REAL(ABS(12321.*dx*dy*cos(pi/180*latitude(jjv(ngp))))) ! Get area of blocking (sum over gridpoints)
@@ -712,23 +712,24 @@ DO tt=1,(nTime+tlen)
                   ENDDO
 
                   DO tm=1,INT(bstat(label,2))
-                     btrack(nn+tm,1)=label
-                     btrack(nn+tm,2)=bstat(label,2)
-                     btrack(nn+tm,3)=tm
-                     btrack(nn+tm,4)=dzmaxv(MINVAL(ttva(1:ngp))+tm-1)
+                     btrack(nn+tm,1)=label                                            ! Block ID / label
+                     btrack(nn+tm,2)=bstat(label,2)                                   ! Blocking length
+                     btrack(nn+tm,3)=tm                                               ! Time step of block
+                     btrack(nn+tm,4)=dzmaxv(MINVAL(ttva(1:ngp))+tm-1)                 ! Get maximum anomaly for time step (MINVAL(ttva.. provides the time step of the first time step of block
                      CALL gettime(times,MINVAL(ttva(1:ngp)+tm-1),cftimeunit,year,mon,day,hour)
-                     btrack(nn+tm,5:8)=(/year,mon,day,hour/) 
-                     btrack(nn+tm,9)=dzmaxxv(MINVAL(ttva(1:ngp))+tm-1)
-                     btrack(nn+tm,10)=dzmaxyv(MINVAL(ttva(1:ngp))+tm-1)
-                     btrack(nn+tm,12)=REAL(ATAN2(sinsum(tm),cossum(tm))/pi*180)  ! Calculate angle out of the sine and cosine component
+                     btrack(nn+tm,5:8)=(/year,mon,day,hour/)                          ! Get year,mon,day,hour of time step
+                     btrack(nn+tm,9)=dzmaxxv(MINVAL(ttva(1:ngp))+tm-1)                ! Get longitude of maximum anomaly for time step
+                     btrack(nn+tm,10)=dzmaxyv(MINVAL(ttva(1:ngp))+tm-1)               ! Get latitude of maximum anomaly for time step
+                     btrack(nn+tm,12)=REAL(ATAN2(sinsum(tm),cossum(tm))/pi*180)       ! Calculate (longitude) angle out of the sine and cosine component
                      IF (btrack(nn+tm,12).LT.0) btrack(nn+tm,12)=btrack(nn+tm,12)+360 ! If negative, make a positive number
-                     btrack(nn+tm,13)=latsum(tm)/ngpsum(tm) ! Get mean latitude
+                     btrack(nn+tm,13)=latsum(tm)/ngpsum(tm) ! Get mean latitude       ! Calculate mean (latitude) for time step
                   ENDDO
                   DEALLOCATE(sinsum,cossum,latsum,ngpsum)
 
                   nn=nn+INT(bstat(label,2))
                ENDIF ! logging
-               ! Persistence criterium
+
+               ! Persistence criterium - delete labels out of array if block is too short
                IF ((MAXVAL(ttva(1:ngp))-MINVAL(ttva(1:ngp))+1).LT.persistence) THEN
                   !print*,"Delete label:",label,"from ",MINVAL(ttv(1:ngp)), " to ", MAXVAL(ttv(1:ngp))  
                   DO tm=1,ngp
@@ -762,14 +763,24 @@ IF (logging) THEN
    OPEN(22,FILE="blockstat.txt",ACTION="write",STATUS="unknown",POSITION="rewind")
    OPEN(23,FILE="blocktracks.txt",ACTION="write",STATUS="unknown",POSITION="rewind")
    OPEN(24,FILE="blocktracks_all.txt",ACTION="write",STATUS="unknown",POSITION="rewind")
+
+
    900 FORMAT (2(A8),A5,3(A3),2(A8),A10,  A8,2(A5),2(A9))
    901 FORMAT (2(I8),I5,3(I3),2(I8),F10.3,I8,2(I5),2(F9.3))
    902 FORMAT (A8,2(A7),A10,  A5,3(A3),2(A9),  A11,2(A9))
    903 FORMAT (I8,2(I7),F10.3,I5,3(I3),2(F9.3),I11,2(F9.3))
-   WRITE(21,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_dz","Timx","Lonx","Latx","Lon","Lat"
-   WRITE(22,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_dz","Timx","Lonx","Latx","Lon","Lat"
-   WRITE(23,902) 'ID',"Length","Tmstp","Max_dz","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
-   WRITE(24,902) 'ID',"Length","Tmstp","Max_dz","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+
+   IF (mode=="TM2D") THEN
+      WRITE(21,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_dz","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(22,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_dz","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(23,902) 'ID',"Length","Tmstp","Max_dz","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+      WRITE(24,902) 'ID',"Length","Tmstp","Max_dz","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+   ELSE IF (mode=="Z500anom") THEN
+      WRITE(21,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_anom","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(22,900) 'ID',"Length","YYYY","MM","DD","HH","Start","End","Max_anom","Timx","Lonx","Latx","Lon","Lat"
+      WRITE(23,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+      WRITE(24,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
+   ENDIF ! IF mode
    nn=0
    DO ii=1,label
       WRITE(21,901) INT(bstat(ii,(/1,2,9,10,11,12,3,4/))),bstat(ii,5),INT(bstat(ii,6:8)),&
