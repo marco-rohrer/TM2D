@@ -317,6 +317,8 @@ DO ii=1,ndims
        inver=dimnames(ii)
        istat = NF90_INQ_DIMID(ncid, inver, VerDimID)
        IF (istat.EQ.nf90_NoErr) exlev=.TRUE.
+    ELSE IF (dimnames(ii)=="time_bnds" .OR. dimnames(ii)=="bnds") THEN
+       PRINT*, "Omit time_bnds"
     ELSE 
        WRITE(*,*) '-----------------------------------------'
        WRITE(*,*) '----- Unknown dimension, check file -----'
@@ -757,7 +759,7 @@ DO tt=1,(nTime+tlen)
 ENDDO ! DO tt
 istat = NF90_CLOSE(ncid)
 istat = NF90_CLOSE(ncido)
-
+print*,"logging",logging
 IF (logging) THEN 
    OPEN(21,FILE="blockstat_all.txt",ACTION="write",STATUS="unknown",POSITION="rewind")
    OPEN(22,FILE="blockstat.txt",ACTION="write",STATUS="unknown",POSITION="rewind")
@@ -781,6 +783,7 @@ IF (logging) THEN
       WRITE(23,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
       WRITE(24,902) 'ID',"Length","Tmstp","Max_anom","YYYY","MM","DD","HH","Lonx","Latx","Area","MeanLon","MeanLat"
    ENDIF ! IF mode
+   PRINT*,"Hallo"
    nn=0
    DO ii=1,label
       WRITE(21,901) INT(bstat(ii,(/1,2,9,10,11,12,3,4/))),bstat(ii,5),INT(bstat(ii,6:8)),&
