@@ -138,7 +138,7 @@ version='v0.9.0'
 narg=iargc()
 IF (narg.EQ.0) THEN
    PRINT*,"ERROR: Not enough parameters given, at least mode, infile, invar, outfile must be given"
-   PRINT*,"Example: ./tm2d --infile='Z500.nc' --invar='Z' --outfile='blocks.nc' --mode=='TM2D'"
+   PRINT*,"Example: ./tm2d --infile=Z500.nc --invar=Z --outfile=blocks.nc --mode==TM2D"
    STOP
 ENDIF
 
@@ -154,7 +154,6 @@ DO i=1,narg
         PRINT*,"Usage: ./tm2d --infile='Z500.nc' --invar='Z' --outfile='blocks.nc' --mode=='TM2D'"
         PRINT*,"Use --morehelp for a more thourough explanation of the algoritm"
         PRINT*,"Options and explanation:"
-!       PRINT*,"--debug [Print debug information]"
         PRINT*,"--morehelp [Print even more help]"
         PRINT*,"--infile=CHAR [Indicate input file name - REQUIRED]"
         PRINT*,"--invar=CHAR [Indicate required variable name of infile - REQUIRED]"
@@ -174,7 +173,7 @@ DO i=1,narg
         PRINT*,"-nc3 [creates an uncompressed NetCDF3 file instead of a zipped NetCDF4 file"
         PRINT*,"-labels [activate ascencding numbering of blocks instead of binary field]"
         STOP
-      CASE ('--mor')
+      CASE ('-m   ','--mor')
         WRITE(*,'(A446)') "This program detects and tracks blockings. So far three different block algorithms are implemented that &
              &were used in Rohrer et al. (in prep.). They all operate similarly by first finding areas that fulfil certain requi&
              &rements that qualify them as prototype blocks. Thereafter these 'protoblock areas' are tracked over time and tagge&
@@ -203,7 +202,6 @@ DO i=1,narg
         WRITE(*,'(A91)') "The program has more options to customize the output [The standard setting is in brackets]:"
         WRITE(*,'(A103)') "INT stands for integer, FLOAT for floating point number, CHAR for a string, BOOL for a boolean&
                & variable"
-        WRITE(*,'(A77)') "--debug=BOOL : Use this option if you want to print debugging information [F]"
         WRITE(*,'(A103)') "--logging=BOOL : Use this option to deactivate the log files that saves statistics about the&
                & blocks [T]"
         WRITE(*,'(A105)') "--infile=CHAR: REQUIRED, use this parameter to indicate the file that is read in, e.g.&
@@ -509,7 +507,7 @@ DO tt=1,(nTime+tlen)
 
 !! ======================================================================================
 !! Get potentially blocked grid points --> Depends on the applied method --> mode switch
-   IF (tt.LE.nTime) THEN !(INT(arr(1,1,tx)).NE.-99999) THEN ! We do not need to calculate blockings after the last time step
+   IF (tt.LE.nTime) THEN ! We do not need to calculate blockings after the last time step
       ! Get potentially blocked grid points for TM2D
       IF (mode=="TM2D") THEN
          IF (nh) THEN
@@ -766,7 +764,6 @@ DO tt=1,(nTime+tlen)
 
                ! Persistence criterium - delete labels out of array if block is too short
                IF ((MAXVAL(ttva(1:ngp))-MINVAL(ttva(1:ngp))+1).LT.persistence) THEN
-                  !print*,"Delete label:",label,"from ",MINVAL(ttv(1:ngp)), " to ", MAXVAL(ttv(1:ngp))  
                   DO tm=1,ngp
                      arr3(iiv(tm),jjv(tm),ttv(tm))=0
                      arr2(iiv(tm),jjv(tm),ttv(tm))=0
@@ -932,12 +929,16 @@ IMPLICIT NONE
    REAL(8)                                              :: pi=4.0*ATAN(1.D0)
    REAL(8)                                              :: a1,ax,afrc
 
+   ! Loop over every labelled block of time step 2
    DO nn=2,INT(MAXVAL(arrover(:,:,2))) ! For each contour
       a1=0 ; ax=0 ; afrc=0 
       DO ii=1,nLong
          DO jj=1,nLats
             ! Get area of contour at time tt and tt+1 --> Overlap between both timesteps (forward)
+
+            ! Get total area of time step 2
             IF (arrover(ii,jj,2).EQ.nn) a1=a1+ABS(12321.*dx*dy*cos(pi/180*latitude(jj)))
+            ! Get area that is overlapping with time step 3
             IF ((arrover(ii,jj,2).EQ.nn).AND.(arrover(ii,jj,3).GE.1)) ax=ax+ABS(12321.*dx*dy*cos(pi/180*latitude(jj)))
             afrc=ax/a1
          ENDDO ! jj
