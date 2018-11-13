@@ -350,7 +350,7 @@ for ennr in ${list[@]} ; do
           dataname=${work_d}/blockings/blocks_${datatype}.nc
       fi
 	  # Actual calculation of TM2D
-      ${f90_tm2d} --infile=${work_d}/${var2}/${var2}.nc --invar=Z --outfile==${dataname} --mode==TM2D --persistence=${persistence} --overlap=${overlap} --dlat=${tmy}
+      ${f90_tm2d} --infile=${work_d}/${var2}/${var2}.nc --invar=Z --outfile=${dataname} --mode=TM2D --persistence=${persistence} --overlap=${overlap} --dlat=${tmy}
 
       if [ "${datatype}" == "ccc_novolc" ] ; then
          mv blockstat.txt ${work_d}/blockings/blockstat_${startyear}-${endyear}.txt
