@@ -8,49 +8,32 @@
 
 echo "Starting programm TMblock_v0.6 `date +%d:%T.%3N` PID:$$"
 
-declare remapping=Y        # [Y/N] Remapping the data, if yes: res must be given --> see cdo for naming conventions
-res=r180x91 #T63                # r180x91 stands for 2 degree regular lon-lat file
+declare remapping=true     # [true/false] Remapping the data, if yes: res must be given --> see cdo for naming conventions
+res=r180x91 #T63           # r180x91 stands for 2 degree regular lon-lat file
 
-declare download=Y         # [Y/N] Copy data from climstor
-declare splitter=Y         # [Y/N] Split individual members of 20CR
-declare preproc=Y          # [Y/N] Preprocessing
-declare tmtrack=Y          # [Y/N] Compute blockings
-declare pproc=Y            # [Y/N] Run post processing
+declare download=true         # [Y/N] Copy data from climstor
+declare preproc=true          # [Y/N] Preprocessing
+declare tmtrack=true          # [Y/N] Compute blockings
+declare pproc=true            # [Y/N] Run post processing
 
 
-datatype="era20cm"      # ccc_novolc for novolc
-# 1600 1641 1673 1694 1809 1815 1832 1862 1884 1903 1964 1983 1992
-startyear=1900
-endyear=2010
+declare datatype="era5"    # Type of dataset (must be identical to folder and filename!
+declare startyear=2000
+declare endyear=2017
 
-variable="z500"            # Variables, possible: z200, z500
+declare variable="z500"    # Variable name as given in 
 
-persistence=20             # Tuning parameter for TM2D: Minimum persistence of blocking
-overlap=0.7                # Tuning parameter for TM2D: Minimum overlap between timesteps
-tmy=15                     # Tuning parameter for TM2D: Latitude difference between the northern and central / central and southern latitude
+declare persistence=20     # Tuning parameter for TM2D: Minimum persistence (in timesteps)
+declare overlap=0.7        # Tuning parameter for TM2D: Minimum overlap between two timesteps
+declare tmy=15                     # Tuning parameter for TM2D: Latitude difference between the northern and central / central and southern latitude
 
-# Programs 
-f90_tm2d=/storage/home/rohrer/tank/TMblock500/scripts/fort/tm2d086
-f90_check=/storage/home/rohrer/tank/TMblock500/scripts/fort/nccheck0820
-export NCARG_ROOT=/home/marco/prog
-export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:/storage/home/rohrer/prog/lib
+# Path to required programs
+declare f90_tm2d=tm2d
+export LD_LIBRARY_PATH=${LD_LIBRARY_PATH}:"`nf-config --prefix`/lib"
 
  #Directories
-
-rootdir=/storage/home/rohrer/tank/TMblock500
-if [ ! -d ${rootdir} ] ; then echo "Rootdir not existing, where do you run your script anyway??" ; exit 1 ; fi
+rootdir=`pwd`
 if [ ! -d ${rootdir}/workdir ] ; then mkdir ${rootdir}/workdir ; fi
-outdir=/home/marco/Data/TMblock
-#if [ ! -d ${outdir} ] ; then mkdir ${outdir} ; fi
-
-case ${variable} in
-   z200)
-      var2="Z200" ; ccclev=20000
-      ;;
-   z500)
-      var2="Z500" ; ccclev=50000
-      ;;
-esac # variable
 
 case ${res} in
    T63)
@@ -61,13 +44,15 @@ case ${res} in
      ;;
 esac # 
 
+
+
+
 case ${datatype} in
    20CR|20cr|20CRv2|20crv2)
       basedir="/storage/home/rohrer/20cr/${variable}"
       workdir=${rootdir}/workdir/20cr ; if [ ! -d ${workdir} ] ; then mkdir ${workdir} ; fi
       datatype="20cr"
-      list=( 004 005 006 007 008 009 010 011 012 013 014 015 016 017 018 019 020 021 022 023 024 025 026 027 028 029 030 031 032 033 034 035 036 037 038 039 040 041 042 043 044 045 046 047 048 049 050 051 052 053 054 055 056 )
-      list=( 001 002 003 ) #022 023 024 036 040 )
+      list=( 001 002 003 004 005 006 007 008 009 010 011 012 013 014 015 016 017 018 019 020 021 022 023 024 025 026 027 028 029 030 031 032 033 034 035 036 037 038 039 040 041 042 043 044 045 046 047 048 049 050 051 052 053 054 055 056 )
       outdir="${outdir}/20cr"
       ;;
    20CRv2c|20crv2c)
@@ -192,147 +177,83 @@ case ${datatype} in
       ;;
 esac
 
+case ${variable} in
+   z200)
+      var2="Z200" ; ccclev=20000
+      ;;
+   z500)
+      var2="Z500" ; ccclev=50000
+      ;;
+esac # variable
+
 #######################################################################################
 #--------------------------------------------------------------------------------------
 #                                        Run
 #--------------------------------------------------------------------------------------
 #######################################################################################
-# Download data
-if [ "${datatype}" == "20cr" ] ; then
-   if [ ! -d ${workdir}/rawall ] ; then mkdir ${workdir}/rawall ; fi
 
-   if [ "${download}" = "Y" ] ; then
-      for year in `seq ${startyear} 1 ${endyear}` ; do
-         cp ${basedir}/*_${year}.nc ${workdir}/rawall
-      done # for year 
-   fi
-
-   if [ "${splitter}" = "Y" ] ; then
-      if [ ! -d ${workdir}/temp ];then mkdir ${workdir}/temp ;fi
-
-      for year in `seq $startyear 1 $endyear`; do
-         echo "Split year ${year}. `date +%d:%T.%3N`"
-         infile=${workdir}/rawall/${variable}_${year}.nc
-         outfile=${workdir}/temp/Temp.${variable}_${year}.nc
-         #          infilename|outfile  |wholeyear|keepleap|var|datatype
-         ${f90_check} ${infile} ${outfile} ${year} -1 F ${variable} 20CR
-
-         # Necessary to keep disk usage lower (f90_check cannot handle it yet...)
-         for ennr in ${list[@]} ; do
-            ennr1=$(( 10#${ennr} + 0 ))
-            work_d=${workdir}/20cr_${ennr}
-            if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
-            cdo -s -b F32 chname,${variable},Z ${workdir}/temp/Temp.${variable}_${year}.${ennr1}.nc ${work_d}/${var2}/${var2}_${year}.nc
-            rm ${workdir}/temp/Temp.${variable}_${year}.${ennr1}.nc
-         done # for ennr
-      done # for year
-   fi # if splitter
-elif [ "${datatype}" == "20crv2c" ] ; then
-   if [ "${splitter}" == "Y" ] ; then
-      echo "Split and check member ${ennr}: `date +'%d:%H:%M:%S:%3N'`"
-      for year in `seq $startyear 1 $endyear` ; do
-         if [ ! -d ${workdir}/rawall ] ; then mkdir ${workdir}/rawall ; fi
-         inputfile=${basedir}/${variable}_${year}.nc
-         outputfile=${workdir}/rawall/20crv2c_${year}.${variable}.nc
-         mn=-1
-         echo ${inputfile}
-         ${f90_check} ${inputfile} ${outputfile}.temp ${year} ${mn} F ${variable} ${datatype}
-
-         for ennr in ${list[@]} ; do
-            ennr1=$(( 10#${ennr} + 0 ))
-            work_d=${workdir}/20crv2c_${ennr}
-            if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
-            cdo -s -b F32 chname,${variable},Z ${outputfile}.${ennr1}.temp ${work_d}/${var2}/${var2}_${year}.nc
-
-            rm ${outputfile}.${ennr1}.temp
-         done # for ennr
-      done # for year
-   fi # if splitter
-elif [ "${datatype}" == "era20c" ] ; then
-   work_d=${workdir}
-   if [ ! -d ${work_d}/anom ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
-   if [ "${download}" == "Y" ] ; then
-      for year in `seq ${startyear} 1 ${endyear}` ; do
-         echo "Download ERA-20c data for year ${year}: `date +'%d:%H:%M:%S:%3N'`"
-         inputfile=${basedir}/era20c.${var2}.${year}.nc
-         outputfile=${work_d}/${var2}/${var2}_${year}.nc
-         ${f90_check} ${inputfile} ${outputfile} ${year} -1 F Z era20c
-
-      done # for yyyy
-   fi # if download
-elif [ "${datatype}" == "eraint" ] ; then
-   work_d=${workdir}
-   if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
-   if [ "${download}" == "Y" ] ; then
-      echo "Download and check ERA-interim : `date +'%d:%H:%M:%S:%3N'`"
-
-      for year in `seq ${startyear} 1 ${endyear}` ; do
-         inputfile=${basedir}/eraint.${var2}.${year}.nc
-         outputfile=${work_d}/raw${var2}/ERAi_${var2}_${year}.nc
-         ${f90_check} ${inputfile} ${outputfile} ${year} -1 F z eraint
-
-         # Change latitude form -180,180 to 0,360 so grid is ok for our tools 
-         cdo -s sellonlatbox,0,359,-90,90 ${work_d}/raw${var2}/ERAi_${var2}_${year}.nc ${workdir}/${var2}/${var2}_${year}.nc
-      done # for year
-   fi # if download ERAint
-elif [ "${datatype}" == "merra" ] || [ "${datatype}" == "merra2" ] || [ "${datatype}" == "ncep" ] || [ "${datatype}" == "jra55" ] || [ "${datatype}" == "cfsr" ]|| [ "${datatype}" == "era40" ] || [ "${datatype}" == "erapresat" ] ; then
-   work_d=${workdir}
-   if [ ! -d ${work_d}/raw${var2} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
-
-   if [ "${download}" == "Y" ] ; then
-     echo "Download and check ${filename} : `date +'%d:%H:%M:%S:%3N'`"
-
-     for year in `seq ${startyear} 1 ${endyear}` ; do
-         echo "Preprocess year ${year}: `date +'%d:%H:%M:%S:%3N'`"
-         inputfile=${basedir}/${filename}.${var2}.${year}.nc
-         outputfile=${work_d}/raw${var2}/${datatype}.${var2}_${year}.nc
-         echo "$inputfile ${var2}"
-         ${f90_check} ${inputfile} ${outputfile} ${year} -1 F ${var2} ${datatype}
-         # Change latitude form -180,180 to 0,360 so grid is ok for our tools 
-         cdo -L -s sellonlatbox,0,359,-90,90 -chname,${var2},Z ${work_d}/raw${var2}/${datatype}.${var2}_${year}.nc ${workdir}/${var2}/${var2}_${year}.nc
-      done # for year
-   fi # if download
-elif [ "${datatype}" == "cera20c" ] || [ "${datatype}" == "era20cm" ] ; then
-   if [ "${download}" == "Y" ] ; then
-      for ennr in ${list[@]} ; do
-         echo "Download and check member ${ennr}: `date +'%d:%H:%M:%S:%3N'`"
-         work_d=${workdir}/${datatype}_${ennr}
-         if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/${var2},/raw${var2},/blockings,/anom} ; fi
-         if [ "${datatype}" == "cera20c" ] ; then
-            varname="Z"
-         else
-            varname="z"
-         fi # if datatype
+case $datatype in
+   "20cr")
+      ;;
+   "20crv2c") 
+      ;;
+   "era5")
+      work_d=${workdir}
+      if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
+      if [ "${download}" == "Y" ] ; then
+         echo "Download and check ERA5 : `date +'%d:%H:%M:%S:%3N'`"
          for year in `seq ${startyear} 1 ${endyear}` ; do
-            echo "Download ennr: ${ennr} and year: ${year} ; `date +'%d:%H:%M:%S:%3N'`"
-            inputfile=${basedir}/${datatype}_${ennr}.${var2}.${year}.nc
-            echo $inputfile
-            outputfile=${work_d}/${var2}/${var2}_${year}.nc
-            atts=0
-            while [ ! -f ${outputfile} -a ${atts} -le 1 ] ; do
-
-               ${f90_check} ${inputfile} ${outputfile} ${year} -1 F ${varname} ${datatype}${ennr}
-               let atts=$atts+1
-            done # while outputfile
+            if [ "${year}" == "${endyear}" ] ; then
+               mnmax=${endmon}
+            else
+               mnmax=12
+            fi # find last month available of year
+            for mn in `seq -f %02g 1 ${mnmax}` ; do
+               inputfile=${basedir}/${datatype}.${var2}.${year}${mn}.nc4z
+               outputfile=${workdir}/${var2}/${var2}_${year}${mn}.nc
+               # Change latitude form -180,180 to 0,360 so grid is ok for our tools 
+               cdo -s sellonlatbox,0,359.99,-90,90 -chname,${var2},Z ${inputfile} ${outputfile}
+            done # for month do standardize data
+            cdo -s -O -f nc4 -z zip_1 mergetime ${workdir}/${var2}/${var2}_${year}??.nc ${workdir}/${var2}/${var2}_${year}.nc
          done # for year
-      done # for ennr
-   fi # if download
-elif [ "${datatype}" == "ccc" ] || [ "${datatype}" == "ccc_novolc" ] || [ "${datatype}" == "ccc_climsst" ] ; then
-   if [ "${download}" == "Y" ] ; then
-      for ennr in ${list[@]} ; do
-         echo "Download and check member ${ennr}: `date +'%d:%H:%M:%S:%3N'`"
-         work_d=${workdir}/ccc400_${ennr}
-         if [ ! -d ${work_d} ] ; then 
-             mkdir ${work_d}{,/${var2},/raw${var2},/blockings,/anom} 
-         else
-             rm ${work_d}/${var2}/*
-         fi
+      fi # if download
+	  ;;
+   "merra"|"merra2"|"ncep"|"ncep2"|"jra55"|"cfsr"|"era40"|"erapresat"|"eraint")
+      work_d=${workdir}
+      if [ ! -d ${work_d}/raw${var2} ] ; then mkdir ${work_d}{,/raw${var2},/${var2},/blockings,/anom} ; fi
+      if [ "${download}" == "Y" ] ; then
+         echo "Download and check ${filename} : `date +'%d:%H:%M:%S:%3N'`"
          for year in `seq ${startyear} 1 ${endyear}` ; do
-            cdo -s -chname,geopoth,Z ${basedir}/ccc400_${ennr}/ccc400_${ennr}.${var2}.${year}.nc ${work_d}/${var2}/${var2}_${year}.nc
+            echo "Preprocess year ${year}: `date +'%d:%H:%M:%S:%3N'`"
+            inputfile=${basedir}/${filename}.${var2}.${year}.nc
+            outputfile=${workdir}/${var2}/${var2}_${year}.nc
+            echo "${f90_check} ${inputfile} ${outputfile} ${year} -1 F ${var2} ${datatype}"
+            # Change latitude form -180,180 to 0,360 so grid is ok for our tools
+            cdo -L -s sellonlatbox,0,359.99,-90,90 -chname,${var2},Z ${work_d}/raw${var2}/${datatype}.${var2}_${year}.nc ${workdir}/${var2}/${var2}_${year}.nc
          done # for year
-      done # for ennr
-   fi # Download  
-fi # if datatype
+      fi # if download
+      ;;
+   "cera20c"|"era20c")
+      if [ "${download}" == "Y" ] ; then
+         for ennr in ${list[@]} ; do
+            echo "Download and check member ${ennr}: `date +'%d:%H:%M:%S:%3N'`"
+            work_d=${workdir}/${datatype}_${ennr}
+            if [ ! -d ${work_d} ] ; then mkdir ${work_d}{,/${var2},/raw${var2},/blockings,/anom} ; fi
+            if [ "${datatype}" == "cera20c" ] ; then
+               varname="Z"
+            else
+               varname="z"
+            fi # if datatype
+            for year in `seq ${startyear} 1 ${endyear}` ; do
+               echo "Download ennr: ${ennr} and year: ${year} ; `date +'%d:%H:%M:%S:%3N'`"
+               inputfile=${basedir}/${datatype}_${ennr}.${var2}.${year}.nc
+               outputfile=${work_d}/${var2}/${var2}_${year}.nc
+               cdo -L -s sellonlatbox,0,359.99,-90,90 -chname,${var2},${varname} ${inputfile} ${outputfile}
+            done # for year
+         done # for ennr
+      fi # if download
+      ;;
+esac
 
 
 for ennr in ${list[@]} ; do
@@ -428,7 +349,9 @@ for ennr in ${list[@]} ; do
       else 
           dataname=${work_d}/blockings/blocks_${datatype}.nc
       fi
-      ${f90_tm2d} ${work_d}/${var2}/${var2}.nc Z ${dataname} ${persistence} ${overlap} ${tmy}
+	  # Actual calculation of TM2D
+      ${f90_tm2d} --infile=${work_d}/${var2}/${var2}.nc --invar=Z --outfile==${dataname} --mode==TM2D --persistence=${persistence} --overlap=${overlap} --dlat=${tmy}
+
       if [ "${datatype}" == "ccc_novolc" ] ; then
          mv blockstat.txt ${work_d}/blockings/blockstat_${startyear}-${endyear}.txt
          mv blocktracks.txt ${work_d}/blockings/blocktracks_${startyear}-${endyear}.txt
