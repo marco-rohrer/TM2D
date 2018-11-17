@@ -312,7 +312,7 @@ DO ii=1,ndims
        nTime=lendims(ii)
        intime=dimnames(ii)
        istat = NF90_INQ_DIMID(ncid, intime, TimeDimID)
-    ELSE IF (dimnames(ii)=="lev" .OR. dimnames(ii)== "level" .OR. dimnames(ii)=="lv_ISBL1") THEN
+    ELSE IF (dimnames(ii)=="lev" .OR. dimnames(ii)=="plev" .OR. dimnames(ii)== "level" .OR. dimnames(ii)=="lv_ISBL1") THEN
        nVert=lendims(ii)
        inver=dimnames(ii)
        istat = NF90_INQ_DIMID(ncid, inver, VerDimID)
