@@ -1,5 +1,5 @@
 # TM2D - Tibaldi Molteni 2-dimensional blocks
-2D dimensional blocking algorithm (see Rohrer et al., 2018; Rohrer et al., submitted to Tellus A; Rohrer et al., in prep.). Computed blocking catalogues for a multitude of dataset are available on request (marco.rohrer@giub.unibe.ch ; mrohrer87@gmail.com).
+2D dimensional blocking algorithm (see Rohrer et al., 2018; Rohrer et al., 2019; Rohrer et al., in prep.). Computed blocking catalogues for a multitude of dataset are available on request (marco.rohrer@giub.unibe.ch ; marco.rohrer@protonmail.com).
 
 The algorithm detects potentially blocked regions in a gridded dataset. As of now three different methods are implemented: TM2D, Z500anom, VAPV. The name of this repository is thus a little out of date, as more methods were added later. After potentially blocked areas are detected, the algorithm applies a persistence criteria and an overlap criteria that ensures that a block does not move too fast between two time steps. In its standard setting the persistence criterion is set 20 time steps, which corresponds to 5 days for 6-hourly data. The standard setting for the overlap criterion is 0.7 or 70% overlap between two time steps (i.e. A<sub>t</sub> ⋂ A<sub>t+1</sub> ≥0.7*A<sub>t</sub>) . This is almost identical to the tracking approach in Schwierz et al. (2004). 
 On a more technical note, the algorithm was programmed in a way to detect blockings also on very long datasets such as CCC400 with 400 years of data. One large NetCDF file is created that is loaded sequentially into the blocking algorithm. This approaches enables to run the software with a relatively low RAM footprint, although very large input files (e.g. a complete CCC400 member is 40 GB large). Instead of loading the whole dataset at once, only approximately one year is loaded into the algorithm, reducing the memory footprint by a factor of roughly 400. As soon as a time step is not used anymore, as blockings can only be detected forward in time but not backward, the next time step is loaded until the end of the file is reached. This approach ensures that every detected blocking has an unique ID and evades problems arising if the datasets is examined in e.g. yearly chunks (i.e. time overlap needed to detect blockings at the beginning and end of the chunk). 
@@ -18,7 +18,7 @@ The difference between the central and the polarward or equatorward grid point d
 This approach detects potential blocks as regions with a positive Z500 anomaly (Z500*), similar to Dole and Gordon (1983). Here, we use regions with a Z500 anomaly larger than 200 m (again derived by subtracting the 30 day running mean climatology). Please note that the algorithm does NOT compute the anomaly on its own, so the input file needs to already contain Z500 anomalies. Of course also other variables than Z500 can potentially be used.
 
 #### VAPV
-Similar to the definition in Schwierz et al. (2004), Pfahl & Wernli (2012b) and Lenggenhager et al. (in revision) blocks are derived from the 150–500 hPa vertically averaged PV (VAPV). First the VAPV anomaly is computed by subtracting the 30 day running mean climatology of the corresponding time step of the year. To smooth out high-frequency variability an additional two day running mean filter is applied before detecting regions with PV <=-1.3 in the Northern Hemisphere and >=1.3 in the Southern Hemisphere. Note that internally values in the Southern Hemisphere are multiplied by (*-1) and the blocking statistics files are not corrected for that! I.e. a block with an anomaly of -2 PVU in the Southern Hemisphere has an anomaly of +2 PVU in reality.
+Similar to the definition in Schwierz et al. (2004), Pfahl & Wernli (2012b) and Lenggenhager et al. (2019) blocks are derived from the 150–500 hPa vertically averaged PV (VAPV). First the VAPV anomaly is computed by subtracting the 30 day running mean climatology of the corresponding time step of the year. To smooth out high-frequency variability an additional two day running mean filter is applied before detecting regions with PV <=-1.3 in the Northern Hemisphere and >=1.3 in the Southern Hemisphere. Note that internally values in the Southern Hemisphere are multiplied by (*-1) and the blocking statistics files are not corrected for that! I.e. a block with an anomaly of -2 PVU in the Southern Hemisphere has an anomaly of +2 PVU in reality.
 
 ## Pre- and postprocessing
 This folder contains 3 sample bash scripts that take care of the pre- and postprocessing. Preprocessing includes remapping and calculating anomalies. Note that for VAPV and Z500anom the exact choice of the anomaly (i.e. compare it to a fixed 30 year climatology vs. to a transient 30-year running mean climatology) may change the results! The algorithm expects one large file, so at the end we merge the whole input dataset to one large NetCDF file. The file should have an absolute time axis is required, otherwise the timestamp is not correctly computed. An absolute time axis can be created by the command: cdo **-a** copy trel.nc tabs.nc
@@ -55,7 +55,7 @@ The tm2d.make script compiles the tm2d fortran code and should automatically lin
 The now created executable can be called like a normal program, i.e. ./tm2d
 
 ### Problems and Bugs
-In case of bugs, either send me a bug report with as much information as possible (mrohrer87@gmail.com) or fix it yourself :) In that case let me know, what failed and how you fixed it. 
+In case of bugs, either send me a bug report with as much information as possible (marco.rohrer@protonmail.com) or fix it yourself :) In that case let me know, what failed and how you fixed it. 
 
 ### Example
 ./tm2d --infile=/home/marco/Z500.nc --invar=Z --outfile=/home/marco/blocks.nc --mode=TM2D
@@ -78,5 +78,5 @@ Note that this version is not thoroughly checked yet, so bugs can still occur. W
 - Arrange the overlap and contouring subroutines as external modules as these algorithms may be handy for other programs too
 
 
-Marco Rohrer (marco.rohrer@giub.unibe.ch ; mrohrer87@gmail.com), Nov 2018
+Marco Rohrer (marco.rohrer@giub.unibe.ch ; marco.rohrer@protonmail.com), Nov 2018
 
